@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medicine Hat Room Rental Market — Live Dashboard</title>
+<meta name="description" content="Live KPIs for the Medicine Hat room-rental market, computed in your browser from the listings spreadsheet.">
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#ffffff; --ink:#16202b; --muted:#5b6b7a; --line:#dde4ec;
+    --accent:#0f6cbd; --accent-soft:#e3effa; --good:#0e7a3d; --warn:#b35c00;
+    --bar:#0f6cbd; --bar2:#7fb3e0; --spot:#fff7e6; --spot-line:#e8c96a;
+    --shadow:0 1px 3px rgba(16,32,48,.08),0 4px 14px rgba(16,32,48,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0d1319; --card:#16202b; --ink:#e8eef4; --muted:#93a5b5; --line:#263646;
+      --accent:#4aa3e8; --accent-soft:#16314a; --good:#3ecf7e; --warn:#ffa94d;
+      --bar:#4aa3e8; --bar2:#2c5f8a; --spot:#2a2410; --spot-line:#8a7326;
+      --shadow:0 1px 3px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.3);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.45;-webkit-text-size-adjust:100%}
+  .wrap{max-width:1080px;margin:0 auto;padding:20px 16px 48px}
+  header.top{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin:8px 0 4px}
+  h1{font-size:1.55rem;margin:0 0 2px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:.92rem;margin:0}
+  .meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;color:var(--muted);font-size:.85rem}
+  button.refresh{background:var(--accent);color:#fff;border:0;border-radius:8px;
+    padding:9px 16px;font-size:.9rem;font-weight:600;cursor:pointer}
+  button.refresh:disabled{opacity:.55;cursor:default}
+  button.refresh:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .grid{display:grid;gap:14px;margin-top:16px}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px;box-shadow:var(--shadow)}
+  .kpi .label{font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 6px}
+  .kpi .value{font-size:1.7rem;font-weight:700;line-height:1.1;margin:0}
+  .kpi .hint{font-size:.82rem;color:var(--muted);margin:6px 0 0}
+  h2{font-size:1.05rem;margin:0 0 12px}
+  .cols{grid-template-columns:repeat(auto-fit,minmax(290px,1fr))}
+  .spot{background:var(--spot);border-color:var(--spot-line)}
+  .spot .value{font-size:1.5rem;font-weight:700}
+  .spot p{margin:6px 0}
+  .badge{display:inline-block;background:var(--accent-soft);color:var(--accent);
+    border-radius:999px;padding:2px 10px;font-size:.78rem;font-weight:600}
+  .bar-row{display:grid;grid-template-columns:110px 1fr 64px;gap:10px;align-items:center;margin:7px 0;font-size:.88rem}
+  .bar-row .name{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .track{background:var(--accent-soft);border-radius:6px;height:16px;overflow:hidden}
+  .fill{background:var(--bar);height:100%;border-radius:6px;min-width:2px}
+  .fill.alt{background:var(--bar2)}
+  .bar-row .num{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse;width:100%;font-size:.88rem;min-width:520px}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.05em}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .error{display:none;background:var(--card);border:1px solid var(--warn);border-radius:12px;padding:18px;margin-top:16px}
+  .error.show{display:block}
+  .error h2{color:var(--warn)}
+  .loading{color:var(--muted);padding:28px 0;text-align:center}
+  .foot{color:var(--muted);font-size:.82rem;margin-top:22px}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Medicine Hat Room Rental Market</h1>
+      <p class="sub">Live KPIs from the room-listings spreadsheet — computed in your browser, nothing stored.</p>
+    </div>
+    <div class="meta">
+      <span id="updated">Loading…</span>
+      <button class="refresh" id="refreshBtn" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <div class="loading" id="loading">Fetching live listings…</div>
+
+  <div class="error" id="errorBox" role="alert">
+    <h2>Couldn't load live data</h2>
+    <p>The dashboard reads the listings spreadsheet directly, but the sheet couldn't be reached just now.
+       This usually means the sheet isn't shared for public viewing yet, or the connection hiccuped.
+       Once the sheet is shared as “anyone with the link can view”, this page will light up on its own.</p>
+    <button class="refresh" id="retryBtn" type="button">Try again</button>
+  </div>
+
+  <main id="content" class="hidden">
+    <section class="grid kpis" aria-label="Key numbers">
+      <div class="card kpi"><p class="label">Median room rent</p><p class="value" id="kMedian">—</p><p class="hint" id="kMedianHint"></p></div>
+      <div class="card kpi"><p class="label">Average room rent</p><p class="value" id="kAvg">—</p><p class="hint">Rooms only</p></div>
+      <div class="card kpi"><p class="label">Listings tracked</p><p class="value" id="kTotal">—</p><p class="hint" id="kTotalHint"></p></div>
+      <div class="card kpi"><p class="label">Median days on market</p><p class="value" id="kDom">—</p><p class="hint">All listings with a day count</p></div>
+      <div class="card kpi"><p class="label">Sitting 30+ days</p><p class="value" id="kStale">—</p><p class="hint">Listings over a month old</p></div>
+    </section>
+
+    <section class="grid" style="margin-top:14px">
+      <div class="card spot" id="spotCard">
+        <h2>Your room vs. the market</h2>
+        <div id="spotBody"><p>Looking for your listing…</p></div>
+      </div>
+    </section>
+
+    <section class="grid cols">
+      <div class="card"><h2>Room rent bands</h2><div id="bands"></div></div>
+      <div class="card"><h2>Listings by source</h2><div id="bySource"></div></div>
+      <div class="card"><h2>Listings by type</h2><div id="byType"></div></div>
+      <div class="card"><h2>Listings by area</h2><div id="byArea"></div></div>
+    </section>
+
+    <section class="grid cols">
+      <div class="card">
+        <h2>Cheapest 10 listings</h2>
+        <div class="table-wrap"><table id="cheapTable">
+          <thead><tr><th>Listing</th><th>Type</th><th>Area</th><th class="num">Rent</th><th class="num">Days</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <h2>Longest-listed 10</h2>
+        <div class="table-wrap"><table id="staleTable">
+          <thead><tr><th>Listing</th><th>Type</th><th>Area</th><th class="num">Rent</th><th class="num">Days</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <p class="foot">
+      Data: the “Rent Data” tab of the Medicine Hat room-listings spreadsheet, fetched live each time this page loads or you hit Refresh.
+      “Rooms” means listings categorized as <strong>Room</strong>. Rents are asking prices. Days on market is the sheet's day count per listing.
+    </p>
+  </main>
+  <noscript><p class="foot">This dashboard needs JavaScript to fetch and compute the live figures.</p></noscript>
+</div>
+
+<script>
+"use strict";
+var SHEET_ID = "1LdkTbsGn6kl_dFKby-v31RsRyr7vY8V5-O5NUTxxKWc";
+var SHEET_TAB = "Rent Data";
+var SHEET_GID = "2111830222"; // "Rent Data" tab id, for the CSV fallback
+var GVIZ_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID +
+  "/gviz/tq?tqx=out:json&sheet=" + encodeURIComponent(SHEET_TAB);
+var CSV_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID +
+  "/export?format=csv&gid=" + SHEET_GID;
+
+var $ = function(id){ return document.getElementById(id); };
+
+function esc(s){
+  return String(s == null ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+function parseNum(v){
+  if (v == null) return NaN;
+  if (typeof v === "number") return v;
+  var s = String(v).replace(/[$,\s]/g,"").trim();
+  if (s === "") return NaN;
+  var n = parseFloat(s);
+  return isNaN(n) ? NaN : n;
+}
+function fmtMoney(n){
+  if (!isFinite(n)) return "—";
+  var r = Math.round(n * 100) / 100;
+  var txt = (r % 1 === 0) ? String(Math.round(r)) : r.toFixed(2);
+  return "$" + Number(txt).toLocaleString("en-CA");
+}
+function fmtDays(n){
+  if (!isFinite(n)) return "—";
+  return (n % 1 === 0 ? String(n) : n.toFixed(1)) + " days";
+}
+function median(arr){
+  if (!arr.length) return NaN;
+  var a = arr.slice().sort(function(x,y){ return x - y; });
+  var m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m-1] + a[m]) / 2;
+}
+function mean(arr){
+  if (!arr.length) return NaN;
+  return arr.reduce(function(s,x){ return s + x; }, 0) / arr.length;
+}
+
+/* ---------- live fetch: gviz JSON first, CSV fallback ---------- */
+
+function cellText(cell){
+  if (!cell) return "";
+  if (cell.f != null) return String(cell.f);
+  var v = cell.v;
+  if (v == null) return "";
+  if (typeof v === "string"){
+    var m = v.match(/^Date\((\d+),(\d+),(\d+)/); // gviz date literal
+    if (m) return m[1] + "-" + String(+m[2]+1).padStart(2,"0") + "-" + String(+m[3]).padStart(2,"0");
+    return v;
+  }
+  return String(v);
+}
+
+function rowsFromGviz(json){
+  var table = json && json.table;
+  if (!table || !table.cols || !table.rows) throw new Error("Unexpected gviz shape");
+  var headers = table.cols.map(function(c){ return (c.label || "").trim(); });
+  var rawRows = table.rows.map(function(r){
+    return (r.c || []).map(cellText);
+  });
+  // If gviz didn't treat row 1 as headers, the labels come back empty and
+  // the first data row holds the header names.
+  if (headers.every(function(h){ return h === ""; }) && rawRows.length){
+    headers = rawRows.shift().map(function(h){ return String(h).trim(); });
+  }
+  return toObjects(headers, rawRows);
+}
+
+function parseCsv(text){
+  var rows = [], row = [], field = "", inQ = false, i, ch, next;
+  text = text.replace(/^\uFEFF/, "");
+  for (i = 0; i < text.length; i++){
+    ch = text[i]; next = text[i+1];
+    if (inQ){
+      if (ch === '"'){
+        if (next === '"'){ field += '"'; i++; } else { inQ = false; }
+      } else field += ch;
+    } else if (ch === '"'){ inQ = true; }
+    else if (ch === ","){ row.push(field); field = ""; }
+    else if (ch === "\n"){ row.push(field); field = ""; rows.push(row); row = []; }
+    else if (ch !== "\r"){ field += ch; }
+  }
+  if (field !== "" || row.length){ row.push(field); rows.push(row); }
+  return rows.filter(function(r){ return r.some(function(c){ return String(c).trim() !== ""; }); });
+}
+
+function toObjects(headers, rawRows){
+  var idx = {};
+  headers.forEach(function(h, i){ idx[h.toLowerCase()] = i; });
+  function get(r, name){
+    var i = idx[name.toLowerCase()];
+    return (i == null || r[i] == null) ? "" : String(r[i]).trim();
+  }
+  return rawRows.map(function(r){
+    return {
+      address:  get(r, "Address"),
+      price:    parseNum(get(r, "Price")),
+      dom:      parseNum(get(r, "Time on Market")),
+      title:    get(r, "Listing Title"),
+      area:     get(r, "Area"),
+      link:     get(r, "Link"),
+      available:get(r, "IsAvailable"),
+      listedBy: get(r, "Listed By"),
+      date:     get(r, "Today's Date"),
+      source:   get(r, "Source"),
+      category: get(r, "Category")
+    };
+  }).filter(function(o){
+    return o.title !== "" || isFinite(o.price) || o.address !== "";
+  });
+}
+
+function fetchLive(){
+  var bust = "&_=" + Date.now();
+  return fetch(GVIZ_URL + bust, { credentials: "omit" })
+    .then(function(res){
+      if (!res.ok) throw new Error("gviz HTTP " + res.status);
+      return res.text();
+    })
+    .then(function(text){
+      var start = text.indexOf("{");
+      var end = text.lastIndexOf("}");
+      if (start < 0 || end < 0) throw new Error("gviz: no JSON found");
+      return rowsFromGviz(JSON.parse(text.slice(start, end + 1)));
+    })
+    .catch(function(){
+      return fetch(CSV_URL + bust, { credentials: "omit" })
+        .then(function(res){
+          if (!res.ok) throw new Error("csv HTTP " + res.status);
+          return res.text();
+        })
+        .then(function(text){
+          if (/^\s*</.test(text)) throw new Error("csv: got HTML (sign-in page?)");
+          var grid = parseCsv(text);
+          if (grid.length < 2) throw new Error("csv: too few rows");
+          var headers = grid.shift().map(function(h){ return String(h).trim(); });
+          return toObjects(headers, grid);
+        });
+    });
+}
+
+/* ---------- KPI computation + rendering ---------- */
+
+function isRoom(o){ return o.category.trim().toLowerCase() === "room"; }
+
+function barList(el, entries, maxVal, alt){
+  el.innerHTML = entries.map(function(e){
+    var pct = maxVal > 0 ? Math.max(2, Math.round(e.value / maxVal * 100)) : 0;
+    return '<div class="bar-row"><span class="name" title="' + esc(e.label) + '">' + esc(e.label) +
+      '</span><span class="track"><span class="fill' + (alt ? " alt" : "") + '" style="display:block;width:' + pct + '%"></span></span>' +
+      '<span class="num">' + esc(e.display) + "</span></div>";
+  }).join("");
+}
+
+function countBy(rows, keyFn){
+  var m = {};
+  rows.forEach(function(r){
+    var k = keyFn(r) || "Not specified";
+    m[k] = (m[k] || 0) + 1;
+  });
+  return Object.keys(m).map(function(k){ return { label: k, value: m[k], display: String(m[k]) }; })
+    .sort(function(a,b){ return b.value - a.value; });
+}
+
+function fillTable(tbody, rows){
+  tbody.innerHTML = rows.map(function(o){
+    var name = o.title || o.address || "Listing";
+    var nameHtml = o.link
+      ? '<a href="' + esc(o.link) + '" target="_blank" rel="noopener noreferrer">' + esc(name) + "</a>"
+      : esc(name);
+    return "<tr><td>" + nameHtml + "</td><td>" + esc(o.category || "—") + "</td><td>" +
+      esc(o.area || "—") + '</td><td class="num">' + fmtMoney(o.price) +
+      '</td><td class="num">' + (isFinite(o.dom) ? o.dom : "—") + "</td></tr>";
+  }).join("");
+}
+
+function render(rows){
+  var rooms = rows.filter(isRoom);
+  var roomPrices = rooms.map(function(o){ return o.price; }).filter(isFinite);
+  var allDom = rows.map(function(o){ return o.dom; }).filter(isFinite);
+  var medRoom = median(roomPrices), avgRoom = mean(roomPrices);
+
+  $("kMedian").textContent = fmtMoney(medRoom);
+  $("kMedianHint").textContent = roomPrices.length + " rooms";
+  $("kAvg").textContent = fmtMoney(avgRoom);
+  $("kTotal").textContent = rows.length.toLocaleString("en-CA");
+  var avail = rows.filter(function(o){ return /^yes$/i.test(o.available); }).length;
+  $("kTotalHint").textContent = avail + " marked available";
+  $("kDom").textContent = fmtDays(median(allDom));
+  $("kStale").textContent = allDom.filter(function(d){ return d > 30; }).length;
+
+  // Spotlight: Gurdeep's own listing at 15 Ross Haven Ave SE ($575)
+  var mine = rows.filter(function(o){ return /ross haven/i.test(o.address); })[0] ||
+             rows.filter(function(o){ return o.price === 575 && /maninderjeet/i.test(o.listedBy); })[0];
+  var spot = $("spotBody");
+  if (mine && isFinite(mine.price) && isFinite(medRoom)){
+    var diffPct = (medRoom - mine.price) / medRoom * 100;
+    var cheaperThan = roomPrices.filter(function(p){ return p > mine.price; }).length;
+    var pctile = roomPrices.length ? Math.round(cheaperThan / roomPrices.length * 100) : 0;
+    var vs = diffPct >= 0
+      ? Math.abs(diffPct).toFixed(1) + "% below the median"
+      : Math.abs(diffPct).toFixed(1) + "% above the median";
+    spot.innerHTML =
+      '<p><span class="value">' + fmtMoney(mine.price) + "</span> " +
+      '<span class="badge">' + esc(vs) + "</span></p>" +
+      "<p>" + esc(mine.address || "15 Ross Haven Ave SE") + " — cheaper than " + pctile + "% of the " +
+      roomPrices.length + " rooms tracked" +
+      (isFinite(mine.dom) ? ", listed " + mine.dom + " day" + (mine.dom === 1 ? "" : "s") + " ago" : "") + ".</p>" +
+      (mine.link ? '<p><a href="' + esc(mine.link) + '" target="_blank" rel="noopener noreferrer">View the listing</a></p>' : "");
+  } else {
+    spot.innerHTML = "<p>Your Ross Haven listing wasn't found in the current data — it may have been marked rented or removed from the sheet.</p>";
+  }
+
+  // Rent bands (rooms only)
+  var bands = [
+    { label: "Under $500", test: function(p){ return p < 500; } },
+    { label: "$500–599",   test: function(p){ return p >= 500 && p < 600; } },
+    { label: "$600–699",   test: function(p){ return p >= 600 && p < 700; } },
+    { label: "$700–799",   test: function(p){ return p >= 700 && p < 800; } },
+    { label: "$800+",      test: function(p){ return p >= 800; } }
+  ].map(function(b){
+    var n = roomPrices.filter(b.test).length;
+    return { label: b.label, value: n, display: String(n) };
+  });
+  barList($("bands"), bands, Math.max.apply(null, bands.map(function(b){ return b.value; }).concat([1])), false);
+
+  var src = countBy(rows, function(o){ return o.source; });
+  barList($("bySource"), src, src.length ? src[0].value : 1, true);
+
+  var types = countBy(rows, function(o){ return o.category; }).map(function(e){
+    var prices = rows.filter(function(o){ return (o.category || "Not specified") === e.label; })
+                     .map(function(o){ return o.price; }).filter(isFinite);
+    e.display = e.value + (isFinite(median(prices)) ? " · med " + fmtMoney(median(prices)) : "");
+    return e;
+  });
+  barList($("byType"), types, types.length ? types[0].value : 1, false);
+
+  var areas = countBy(rows, function(o){ return o.area; }).slice(0, 10);
+  barList($("byArea"), areas, areas.length ? areas[0].value : 1, true);
+
+  var cheapest = rows.filter(function(o){ return isFinite(o.price); })
+    .slice().sort(function(a,b){ return a.price - b.price; }).slice(0, 10);
+  fillTable(document.querySelector("#cheapTable tbody"), cheapest);
+
+  var stalest = rows.filter(function(o){ return isFinite(o.dom); })
+    .slice().sort(function(a,b){ return b.dom - a.dom; }).slice(0, 10);
+  fillTable(document.querySelector("#staleTable tbody"), stalest);
+}
+
+function load(){
+  var btn = $("refreshBtn");
+  btn.disabled = true;
+  $("errorBox").classList.remove("show");
+  if ($("content").classList.contains("hidden")) $("loading").classList.remove("hidden");
+  fetchLive()
+    .then(function(rows){
+      if (!rows.length) throw new Error("No rows returned");
+      render(rows);
+      $("loading").classList.add("hidden");
+      $("content").classList.remove("hidden");
+      $("updated").textContent = "Live data fetched " + new Date().toLocaleString("en-CA",
+        { dateStyle: "medium", timeStyle: "short" });
+    })
+    .catch(function(){
+      $("loading").classList.add("hidden");
+      $("errorBox").classList.add("show");
+      $("updated").textContent = "Live data unavailable";
+    })
+    .then(function(){ btn.disabled = false; });
+}
+
+$("refreshBtn").addEventListener("click", load);
+$("retryBtn").addEventListener("click", load);
+load();
+</script>
+</body>
+</html>
