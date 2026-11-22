@@ -220,7 +220,7 @@ function mean(arr){
   return arr.reduce(function(s,x){ return s + x; }, 0) / arr.length;
 }
 
-/* ---------- live fetch: gviz JSON first, CSV fallback ---------- */
+/* ---------- live fetch: CSV export first (ignores sheet filters), gviz fallback ---------- */
 
 function cellText(cell){
   if (!cell) return "";
@@ -296,30 +296,33 @@ function toObjects(headers, rawRows){
 }
 
 function fetchLive(){
+  // CSV export first: it returns every row even when the sheet has a
+  // filter applied. The gviz endpoint only returns rows left visible
+  // by the sheet's filter, so it is only a fallback.
   var bust = "&_=" + Date.now();
-  return fetch(GVIZ_URL + bust, { credentials: "omit" })
+  return fetch(CSV_URL + bust, { credentials: "omit" })
     .then(function(res){
-      if (!res.ok) throw new Error("gviz HTTP " + res.status);
+      if (!res.ok) throw new Error("csv HTTP " + res.status);
       return res.text();
     })
     .then(function(text){
-      var start = text.indexOf("{");
-      var end = text.lastIndexOf("}");
-      if (start < 0 || end < 0) throw new Error("gviz: no JSON found");
-      return rowsFromGviz(JSON.parse(text.slice(start, end + 1)));
+      if (/^\s*</.test(text)) throw new Error("csv: got HTML (sign-in page?)");
+      var grid = parseCsv(text);
+      if (grid.length < 2) throw new Error("csv: too few rows");
+      var headers = grid.shift().map(function(h){ return String(h).trim(); });
+      return toObjects(headers, grid);
     })
     .catch(function(){
-      return fetch(CSV_URL + bust, { credentials: "omit" })
+      return fetch(GVIZ_URL + bust, { credentials: "omit" })
         .then(function(res){
-          if (!res.ok) throw new Error("csv HTTP " + res.status);
+          if (!res.ok) throw new Error("gviz HTTP " + res.status);
           return res.text();
         })
         .then(function(text){
-          if (/^\s*</.test(text)) throw new Error("csv: got HTML (sign-in page?)");
-          var grid = parseCsv(text);
-          if (grid.length < 2) throw new Error("csv: too few rows");
-          var headers = grid.shift().map(function(h){ return String(h).trim(); });
-          return toObjects(headers, grid);
+          var start = text.indexOf("{");
+          var end = text.lastIndexOf("}");
+          if (start < 0 || end < 0) throw new Error("gviz: no JSON found");
+          return rowsFromGviz(JSON.parse(text.slice(start, end + 1)));
         });
     });
 }
