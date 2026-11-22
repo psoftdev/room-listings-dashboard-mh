@@ -104,7 +104,7 @@
   </div>
 
   <main id="content" class="hidden">
-    <section class="card filter-card" aria-label="Date filter">
+    <section class="card filter-card" aria-label="Filters">
       <div class="filter-row">
         <span class="filter-label">Date recorded</span>
         <div class="btn-group" id="monthBtns"></div>
@@ -113,6 +113,14 @@
           <button type="button" class="fbtn" data-half="1">1st half</button>
           <button type="button" class="fbtn" data-half="2">2nd half</button>
         </div>
+      </div>
+      <div class="filter-row">
+        <span class="filter-label">Type</span>
+        <div class="btn-group" id="typeBtns"></div>
+      </div>
+      <div class="filter-row">
+        <span class="filter-label">Classification</span>
+        <div class="btn-group" id="clsBtns"></div>
       </div>
       <div class="filter-row">
         <span class="filter-label">Custom range</span>
@@ -288,7 +296,8 @@ function toObjects(headers, rawRows){
       date:     get(r, "Today's Date"),
       dateObj:  parseDate(get(r, "Today's Date")),
       source:   get(r, "Source"),
-      category: get(r, "Category")
+      category: get(r, "Category"),
+      classification: get(r, "Room Classification")
     };
   }).filter(function(o){
     return o.title !== "" || isFinite(o.price) || o.address !== "";
@@ -413,10 +422,10 @@ function render(rows){
   fillTable(document.querySelector("#staleTable tbody"), stalest);
 }
 
-/* ---------- date filter ---------- */
+/* ---------- filters (date, type, classification) ---------- */
 
 var allRows = [];
-var filter = { month: null, half: 0, from: null, to: null }; // half: 0 full month, 1 = 1st half, 2 = 2nd half
+var filter = { month: null, half: 0, from: null, to: null, type: null, cls: null }; // half: 0 full month, 1 = 1st half, 2 = 2nd half; cls: null = all, "" = unclassified
 
 function monthKey(d){ return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); }
 function monthLabel(key){
@@ -426,8 +435,12 @@ function monthLabel(key){
 }
 
 function filteredRows(){
-  if (!filter.month && !filter.from && !filter.to) return allRows;
+  var dateActive = filter.month || filter.from || filter.to;
+  if (!dateActive && !filter.type && filter.cls === null) return allRows;
   return allRows.filter(function(o){
+    if (filter.type && (o.category || "") !== filter.type) return false;
+    if (filter.cls !== null && (o.classification || "") !== filter.cls) return false;
+    if (!dateActive) return true;
     var d = o.dateObj;
     if (!d) return false;
     if (filter.month){
@@ -457,13 +470,20 @@ function rangeLabel(){
   return "All dates";
 }
 
+function filterLabel(){
+  var parts = [rangeLabel()];
+  if (filter.type) parts.push(filter.type);
+  if (filter.cls !== null) parts.push(filter.cls === "" ? "Unclassified" : filter.cls);
+  return parts.join(" · ");
+}
+
 function applyFilter(){
   var rows = filteredRows();
   render(rows);
   var noDate = allRows.filter(function(o){ return !o.dateObj; }).length;
-  var active = filter.month || filter.from || filter.to;
-  var txt = "Showing " + rows.length + " of " + allRows.length + " listings · " + rangeLabel();
-  if (active && noDate) txt += " · " + noDate + " with no date hidden";
+  var dateActive = filter.month || filter.from || filter.to;
+  var txt = "Showing " + rows.length + " of " + allRows.length + " listings · " + filterLabel();
+  if (dateActive && noDate) txt += " · " + noDate + " with no date hidden";
   $("filterStatus").textContent = txt;
   document.querySelectorAll(".fbtn[data-month]").forEach(function(b){
     b.classList.toggle("on", (b.getAttribute("data-month") || null) === filter.month && !filter.from && !filter.to);
@@ -471,6 +491,13 @@ function applyFilter(){
   document.querySelectorAll(".fbtn[data-half]").forEach(function(b){
     b.classList.toggle("on", +b.getAttribute("data-half") === filter.half);
     b.disabled = !filter.month;
+  });
+  document.querySelectorAll(".fbtn[data-type]").forEach(function(b){
+    b.classList.toggle("on", (b.getAttribute("data-type") || null) === filter.type);
+  });
+  document.querySelectorAll(".fbtn[data-cls]").forEach(function(b){
+    var v = b.getAttribute("data-cls");
+    b.classList.toggle("on", (v === "__all__" ? null : v) === filter.cls);
   });
 }
 
@@ -483,6 +510,20 @@ function buildFilterUI(){
   $("monthBtns").innerHTML = '<button type="button" class="fbtn" data-month="">All dates</button>' +
     months.map(function(k){
       return '<button type="button" class="fbtn" data-month="' + k + '">' + esc(monthLabel(k)) + "</button>";
+    }).join("");
+
+  var types = countBy(allRows, function(o){ return o.category; });
+  $("typeBtns").innerHTML = '<button type="button" class="fbtn" data-type="">All types</button>' +
+    types.map(function(t){
+      return '<button type="button" class="fbtn" data-type="' + esc(t.label) + '">' + esc(t.label) + " (" + t.value + ")</button>";
+    }).join("");
+
+  var clsVals = countBy(allRows, function(o){ return o.classification; });
+  $("clsBtns").innerHTML = '<button type="button" class="fbtn" data-cls="__all__">All</button>' +
+    clsVals.map(function(c){
+      var isBlank = c.label === "Not specified";
+      return '<button type="button" class="fbtn" data-cls="' + esc(isBlank ? "" : c.label) + '">' +
+        esc(isBlank ? "Unclassified" : c.label) + " (" + c.value + ")</button>";
     }).join("");
 }
 
@@ -510,6 +551,20 @@ function load(){
     .then(function(){ btn.disabled = false; });
 }
 
+$("typeBtns").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-type]");
+  if (!b) return;
+  filter.type = b.getAttribute("data-type") || null;
+  applyFilter();
+});
+$("clsBtns").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-cls]");
+  if (!b) return;
+  var v = b.getAttribute("data-cls");
+  filter.cls = v === "__all__" ? null : v;
+  applyFilter();
+});
+
 $("monthBtns").addEventListener("click", function(e){
   var b = e.target.closest("button[data-month]");
   if (!b) return;
@@ -533,7 +588,7 @@ function customChanged(){
 $("fromDate").addEventListener("change", customChanged);
 $("toDate").addEventListener("change", customChanged);
 $("clearFilter").addEventListener("click", function(){
-  filter = { month: null, half: 0, from: null, to: null };
+  filter = { month: null, half: 0, from: null, to: null, type: null, cls: null };
   $("fromDate").value = ""; $("toDate").value = "";
   applyFilter();
 });
